@@ -1,8 +1,11 @@
 package com.hyouka.clock
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -17,6 +20,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import org.json.JSONArray
 import android.content.res.ColorStateList
 import android.util.TypedValue
 import java.text.SimpleDateFormat
@@ -35,6 +39,8 @@ class AlarmActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var ringtone: Ringtone? = null
+    private var currentAlarmId: Int = -1
+    private var currentLabel: String = ""
     private lateinit var clockText: TextView
     private lateinit var labelText: TextView
     private val clockTick = object : Runnable {
@@ -103,19 +109,37 @@ class AlarmActivity : Activity() {
             gravity = Gravity.CENTER
             maxLines = 2
         }
-        val stopButton = Button(this).apply {
-            text = "Stop alarm"
+        val snoozeButton = Button(this).apply {
+            text = "SNOOZE · 5 MIN"
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            typeface = Typeface.DEFAULT_BOLD
+            backgroundTintList = null
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(32).toFloat()
+                setColor(Color.BLACK)
+                setStroke(dp(1), Color.rgb(52, 52, 52))
+            }
+            setOnClickListener { snoozeAlarm() }
+            setOnLongClickListener { showDeleteDialog(); true }
+        }
+        val dismissButton = Button(this).apply {
+            text = "DISMISS"
             isAllCaps = false
             setTextColor(Color.BLACK)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
             typeface = Typeface.DEFAULT_BOLD
             backgroundTintList = ColorStateList.valueOf(Color.WHITE)
             setOnClickListener { dismissAlarm() }
+            setOnLongClickListener { showDeleteDialog(); true }
         }
         root.addView(eyebrow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         root.addView(clockText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) })
         root.addView(labelText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(20) })
-        root.addView(stopButton, LinearLayout.LayoutParams(dp(240), dp(64)).apply { topMargin = dp(54) })
+        root.addView(snoozeButton, LinearLayout.LayoutParams(dp(300), dp(60)).apply { topMargin = dp(48) })
+        root.addView(dismissButton, LinearLayout.LayoutParams(dp(300), dp(64)).apply { topMargin = dp(12) })
         setContentView(root)
     }
 
@@ -123,11 +147,13 @@ class AlarmActivity : Activity() {
         stopRingtone()
         if (alarmIntent == null) return
         val alarmId = alarmIntent.getIntExtra(EXTRA_ALARM_ID, -1)
+        currentAlarmId = alarmId
         val requestCode = alarmIntent.getIntExtra(EXTRA_REQUEST_CODE, -1)
         val hour = alarmIntent.getIntExtra(EXTRA_HOUR, 0)
         val minute = alarmIntent.getIntExtra(EXTRA_MINUTE, 0)
         val repeatDay = alarmIntent.getIntExtra(EXTRA_REPEAT_DAY, 0)
         val label = alarmIntent.getStringExtra(EXTRA_LABEL).orEmpty()
+        currentLabel = label
         labelText.text = label.ifBlank { "Alarm is ringing" }
         if (alarmId >= 0 && requestCode >= 0 && repeatDay in 1..7) {
             ClockAlarmScheduler.scheduleNextOccurrence(this, requestCode, alarmId, hour, minute, repeatDay, label)
@@ -150,6 +176,60 @@ class AlarmActivity : Activity() {
     private fun stopRingtone() {
         try { ringtone?.stop() } catch (_: Exception) { }
         ringtone = null
+    }
+
+    private fun snoozeAlarm() {
+        val scheduled = currentAlarmId >= 0 &&
+            ClockAlarmScheduler.scheduleSnooze(this, currentAlarmId, currentLabel)
+        if (!scheduled) {
+            android.widget.Toast.makeText(
+                this, "Enable exact alarm access to snooze", android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        dismissAlarm()
+    }
+
+    private fun showDeleteDialog() {
+        if (currentAlarmId < 0) return
+        val dialog = AlertDialog.Builder(this)
+            .setCustomTitle(TextView(this).apply {
+                text = "Delete alarm?"
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                setPadding(dp(24), dp(20), dp(24), dp(8))
+            })
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ -> deleteCurrentAlarm() }
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(ColorDrawable(Color.rgb(16, 16, 16)))
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(Color.WHITE)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(Color.LTGRAY)
+        }
+        dialog.show()
+    }
+
+    private fun deleteCurrentAlarm() {
+        val alarmId = currentAlarmId
+        if (alarmId >= 0) {
+            ClockAlarmScheduler.cancelAlarm(this, alarmId)
+            val preferences = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            val key = "flutter.clock_alarms_v1"
+            val stored = preferences.getString(key, null)
+            if (stored != null) {
+                try {
+                    val alarms = JSONArray(stored)
+                    val remaining = JSONArray()
+                    for (index in 0 until alarms.length()) {
+                        val alarm = alarms.optJSONObject(index)
+                        if (alarm != null && alarm.optInt("id", -1) != alarmId) remaining.put(alarm)
+                    }
+                    preferences.edit().putString(key, remaining.toString()).apply()
+                } catch (_: Exception) { }
+            }
+        }
+        dismissAlarm()
     }
 
     private fun dismissAlarm() {

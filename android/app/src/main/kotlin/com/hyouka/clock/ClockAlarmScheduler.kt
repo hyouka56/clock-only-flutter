@@ -19,7 +19,8 @@ internal object ClockAlarmScheduler {
         if (!canScheduleExactAlarms(context)) {
             throw SecurityException("Exact alarm access is not enabled")
         }
-        cancelAlarm(context, id)
+        val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        cancelRegularOccurrences(context, manager, id)
         if (days.isEmpty()) {
             val requestCode = id * 10 + 8
             scheduleInstance(context, requestCode, id, hour, minute, 0, label, nextTriggerAt(hour, minute, 0))
@@ -36,18 +37,41 @@ internal object ClockAlarmScheduler {
         scheduleInstance(context, requestCode, id, hour, minute, day, label, nextTriggerAt(hour, minute, day))
     }
 
+    fun scheduleSnooze(context: Context, id: Int, label: String): Boolean {
+        if (!canScheduleExactAlarms(context)) return false
+        val requestCode = snoozeRequestCode(id)
+        val triggerAt = System.currentTimeMillis() + 5 * 60 * 1000L
+        scheduleInstance(context, requestCode, id, 0, 0, 0, label, triggerAt)
+        return true
+    }
+
     fun cancelAlarm(context: Context, id: Int) {
         val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        cancelRegularOccurrences(context, manager, id)
+        cancelPendingIntent(context, manager, snoozeRequestCode(id))
+    }
+
+    private fun cancelRegularOccurrences(context: Context, manager: AlarmManager, id: Int) {
         for (day in 1..8) {
-            val requestCode = id * 10 + day
-            val intent = Intent(context, AlarmActivity::class.java).apply { action = alarmAction(context, requestCode) }
-            val pending = PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
-            if (pending != null) {
-                manager.cancel(pending)
-                pending.cancel()
-            }
+            cancelPendingIntent(context, manager, id * 10 + day)
         }
     }
+
+    private fun cancelPendingIntent(context: Context, manager: AlarmManager, requestCode: Int) {
+        val intent = Intent(context, AlarmActivity::class.java).apply {
+            action = alarmAction(context, requestCode)
+        }
+        val pending = PendingIntent.getActivity(
+            context, requestCode, intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pending != null) {
+            manager.cancel(pending)
+            pending.cancel()
+        }
+    }
+
+    private fun snoozeRequestCode(id: Int): Int = id * 100 + 99
 
     private fun scheduleInstance(context: Context, requestCode: Int, id: Int, hour: Int, minute: Int, day: Int, label: String, triggerAt: Long) {
         val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager

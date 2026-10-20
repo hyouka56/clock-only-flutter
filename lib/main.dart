@@ -102,7 +102,7 @@ class ClockHomePage extends StatefulWidget {
   State<ClockHomePage> createState() => _ClockHomePageState();
 }
 
-class _ClockHomePageState extends State<ClockHomePage> {
+class _ClockHomePageState extends State<ClockHomePage> with WidgetsBindingObserver {
   int _tab = 0;
   DateTime _now = DateTime.now();
   List<AlarmEntry> _alarms = <AlarmEntry>[];
@@ -112,6 +112,7 @@ class _ClockHomePageState extends State<ClockHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() => _now = DateTime.now());
     });
@@ -120,13 +121,20 @@ class _ClockHomePageState extends State<ClockHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadAlarms() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _loadAlarms(reschedule: false);
+  }
+
+  Future<void> _loadAlarms({bool reschedule = true}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
       final stored = prefs.getString('clock_alarms_v1');
       if (stored != null) {
         final decoded = jsonDecode(stored) as List<dynamic>;
@@ -140,6 +148,7 @@ class _ClockHomePageState extends State<ClockHomePage> {
     }
     if (mounted) setState(() => _loading = false);
 
+    if (!reschedule) return;
     final enabledAlarms = _alarms.where((item) => item.enabled).toList();
     if (enabledAlarms.isNotEmpty) {
       final exactAccess = await AlarmScheduler.instance.canScheduleExactAlarms();
@@ -498,6 +507,27 @@ class AlarmList extends StatelessWidget {
   final Future<void> Function(AlarmEntry, bool) onToggle;
   final Future<void> Function(AlarmEntry) onDelete;
 
+  Future<void> _confirmDelete(BuildContext context, AlarmEntry alarm) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF101010),
+        title: const Text('Delete alarm?', style: TextStyle(color: white)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: muted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete', style: TextStyle(color: white)),
+          ),
+        ],
+      ),
+    );
+    if (shouldDelete == true) await onDelete(alarm);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -547,63 +577,50 @@ class AlarmList extends StatelessWidget {
                 (alarm.hour % 12 == 0 ? 12 : alarm.hour % 12).toString();
             final displayMinute = alarm.minute.toString().padLeft(2, '0');
             final period = alarm.hour < 12 ? 'AM' : 'PM';
-            return Dismissible(
-              key: ValueKey<int>(alarm.id),
-              direction: DismissDirection.endToStart,
-              background: Container(
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 20),
-                decoration: BoxDecoration(
-                  border: Border.all(color: line),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(Icons.delete_outline, color: white),
-              ),
-              onDismissed: (_) => onDelete(alarm),
-              child: Material(
-                color: black,
+            return Material(
+              color: black,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                onTap: () => onEdit(alarm),
+                onLongPress: () => _confirmDelete(context, alarm),
                 borderRadius: BorderRadius.circular(18),
-                child: InkWell(
-                  onTap: () => onEdit(alarm),
-                  borderRadius: BorderRadius.circular(18),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(18, 16, 10, 16),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: line),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('$displayHour:$displayMinute $period',
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(18, 16, 10, 16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: line),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('$displayHour:$displayMinute $period',
+                              style: TextStyle(
+                                color: alarm.enabled ? white : muted,
+                                fontSize: 36, fontWeight: FontWeight.w300,
+                                letterSpacing: -1.1,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              )),
+                            if (alarm.label.isNotEmpty) ...[
+                              const SizedBox(height: 5),
+                              Text(alarm.label, maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: alarm.enabled ? white : muted,
-                                  fontSize: 36, fontWeight: FontWeight.w300,
-                                  letterSpacing: -1.1,
-                                  fontFeatures: const [FontFeature.tabularFigures()],
-                                )),
-                              if (alarm.label.isNotEmpty) ...[
-                                const SizedBox(height: 5),
-                                Text(alarm.label, maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: alarm.enabled ? white : muted)),
-                              ],
-                              const SizedBox(height: 7),
-                              Text(_repeatDescription(alarm.days),
-                                style: const TextStyle(color: muted, fontSize: 12)),
+                                  color: alarm.enabled ? white : muted)),
                             ],
-                          ),
+                            const SizedBox(height: 7),
+                            Text(_repeatDescription(alarm.days),
+                              style: const TextStyle(color: muted, fontSize: 12)),
+                          ],
                         ),
-                        Switch.adaptive(
-                          value: alarm.enabled,
-                          onChanged: (value) => onToggle(alarm, value),
-                        ),
-                      ],
-                    ),
+                      ),
+                      Switch.adaptive(
+                        value: alarm.enabled,
+                        onChanged: (value) => onToggle(alarm, value),
+                      ),
+                    ],
                   ),
                 ),
               ),
