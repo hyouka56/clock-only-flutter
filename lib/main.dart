@@ -52,7 +52,7 @@ class ClockApp extends StatelessWidget {
             onSecondary: black,
           ),
           dividerColor: line,
-          dialogBackgroundColor: const Color(0xFF101010),
+          dialogTheme: const DialogThemeData(backgroundColor: Color(0xFF101010)),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
             fillColor: black,
@@ -472,8 +472,7 @@ class ClockFace extends StatelessWidget {
     final rawHour = now.hour % 12;
     final hour = (rawHour == 0 ? 12 : rawHour).toString();
     final minute = now.minute.toString().padLeft(2, '0');
-    final date = weekdays[now.weekday - 1] +
-        ', ' + months[now.month - 1] + ' ' + now.day.toString();
+    final date = '${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
     return Center(
       child: Padding(
         padding: const EdgeInsets.only(bottom: 18),
@@ -554,12 +553,12 @@ class AlarmList extends StatelessWidget {
     if (alarms.isEmpty) {
       return Stack(
         children: [
-          Center(
+          const Center(
             child: Padding(
-              padding: const EdgeInsets.only(bottom: 40),
+              padding: EdgeInsets.only(bottom: 40),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                children: const [
+                children: [
                   Icon(Icons.alarm_outlined, size: 78, color: white),
                   SizedBox(height: 24),
                   Text('No alarms', style: TextStyle(
@@ -583,7 +582,7 @@ class AlarmList extends StatelessWidget {
         ListView.separated(
           padding: const EdgeInsets.fromLTRB(20, 10, 20, 100),
           itemCount: alarms.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final alarm = alarms[index];
             final displayHour =
