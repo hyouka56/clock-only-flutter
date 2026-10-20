@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 android {
@@ -11,11 +10,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
     }
     defaultConfig {
         applicationId = "com.hyouka.clock"
@@ -30,6 +24,22 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
         }
+    }
+    packaging {
+        jniLibs {
+            excludes += setOf(
+                "lib/armeabi/**",
+                "lib/armeabi-v7a/**",
+                "lib/x86/**",
+                "lib/x86_64/**",
+                "lib/riscv64/**",
+            )
+        }
+    }
+}
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 dependencies {

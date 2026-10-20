@@ -50,6 +50,28 @@ jobs:
       - name: Build ARM64-only release APK
         run: flutter build apk --release --target-platform android-arm64
 
+      - name: Verify APK contains only ARM64 native libraries
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import sys
+          import zipfile
+
+          apk_path = "build/app/outputs/flutter-apk/app-release.apk"
+          with zipfile.ZipFile(apk_path) as apk:
+              abis = {
+                  name.split("/")[1]
+                  for name in apk.namelist()
+                  if name.startswith("lib/")
+                  and len(name.split("/")) > 2
+                  and name.endswith(".so")
+              }
+          print(f"Native ABIs in APK: {sorted(abis)}")
+          if abis != {"arm64-v8a"}:
+              print("ERROR: APK must contain only arm64-v8a native libraries", file=sys.stderr)
+              sys.exit(1)
+          PY
+
       - name: Upload ARM64-only APK
         uses: actions/upload-artifact@v7
         with:
