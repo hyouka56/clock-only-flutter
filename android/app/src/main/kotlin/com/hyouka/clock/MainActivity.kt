@@ -24,6 +24,15 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Allow the permission screen to be opened again on a later scheduling attempt
+        // if the user returned without granting full-screen alarm access.
+        if (fullScreenIntentSettingsOpened) {
+            fullScreenIntentSettingsOpened = false
+        }
+    }
+
     private fun ensureFullScreenAlarmAccess() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE || fullScreenIntentSettingsOpened) return
         val notifications = getSystemService(NotificationManager::class.java)

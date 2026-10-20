@@ -33,6 +33,12 @@ class AlarmReceiver : BroadcastReceiver() {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createAlarmChannel(context, manager)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            !manager.canUseFullScreenIntent()
+        ) {
+            Log.e(TAG, "Full-screen intent access is disabled. Enable it in Special app access.")
+        }
+
         val screenIntent = Intent(context, AlarmActivity::class.java).apply {
             action = intent.action
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -61,15 +67,15 @@ class AlarmReceiver : BroadcastReceiver() {
             .setContentIntent(fullScreenPendingIntent)
             .build()
 
-        // Keep the system-managed full-screen notification as the fallback, but also
-        // try to bring the alarm UI forward immediately when this receiver fires.
+        // Android should launch the full-screen intent from this high-importance alarm
+        // notification while the device is locked or the screen is off.
         manager.notify(alarmId, notification)
+
+        // Best-effort fallback. Android may block direct activity launches from background.
         try {
             context.startActivity(screenIntent)
         } catch (error: Exception) {
-            // Android may restrict activity launches from the background. The posted
-            // full-screen notification remains available in that case.
-            Log.w(TAG, "Direct alarm-screen launch was blocked; using notification fallback.", error)
+            Log.w(TAG, "Direct alarm-screen launch was blocked; notification fallback remains.", error)
         }
     }
 
@@ -94,7 +100,9 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        private const val CHANNEL_ID = "clock_alarm_alerts"
+        // Use a new channel ID to avoid inheriting an older user's channel configuration
+        // where the importance may have been lower than IMPORTANCE_HIGH.
+        private const val CHANNEL_ID = "clock_alarm_alerts_v2"
         private const val TAG = "AlarmReceiver"
     }
 }
