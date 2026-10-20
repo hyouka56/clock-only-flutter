@@ -11,6 +11,7 @@ import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import android.util.Log
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -59,7 +60,17 @@ class AlarmReceiver : BroadcastReceiver() {
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
             .build()
+
+        // Keep the system-managed full-screen notification as the fallback, but also
+        // try to bring the alarm UI forward immediately when this receiver fires.
         manager.notify(alarmId, notification)
+        try {
+            context.startActivity(screenIntent)
+        } catch (error: Exception) {
+            // Android may restrict activity launches from the background. The posted
+            // full-screen notification remains available in that case.
+            Log.w(TAG, "Direct alarm-screen launch was blocked; using notification fallback.", error)
+        }
     }
 
     private fun createAlarmChannel(context: Context, manager: NotificationManager) {
@@ -84,5 +95,6 @@ class AlarmReceiver : BroadcastReceiver() {
 
     companion object {
         private const val CHANNEL_ID = "clock_alarm_alerts"
+        private const val TAG = "AlarmReceiver"
     }
 }
