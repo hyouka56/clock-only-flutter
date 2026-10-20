@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -363,7 +362,7 @@ class _ClockHomePageState extends State<ClockHomePage> {
       return;
     }
     try {
-      final exact = await AlarmScheduler.instance.schedule(alarm);
+      await AlarmScheduler.instance.schedule(alarm);
     } catch (error) {
       debugPrint('Could not schedule alarm: $error');
       _message('Could not schedule alarm. Check Android alarm permissions.');
