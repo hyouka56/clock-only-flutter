@@ -8,7 +8,7 @@ void main() {
   testWidgets('shows only Clock and Alarm navigation', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await tester.pumpWidget(const ClockApp());
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     expect(find.text('Clock'), findsWidgets);
     expect(find.text('Alarm'), findsWidgets);
