@@ -4,7 +4,6 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import java.util.Calendar
 
@@ -58,16 +57,29 @@ internal object ClockAlarmScheduler {
     }
 
     private fun cancelPendingIntent(context: Context, manager: AlarmManager, requestCode: Int) {
-        val intent = Intent(context, AlarmActivity::class.java).apply {
+        val receiverIntent = Intent(context, AlarmReceiver::class.java).apply {
             action = alarmAction(context, requestCode)
         }
-        val pending = PendingIntent.getActivity(
-            context, requestCode, intent,
+        val receiverPending = PendingIntent.getBroadcast(
+            context, requestCode, receiverIntent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
-        if (pending != null) {
-            manager.cancel(pending)
-            pending.cancel()
+        if (receiverPending != null) {
+            manager.cancel(receiverPending)
+            receiverPending.cancel()
+        }
+
+        // Cancel alarms created by older app versions that launched the Activity directly.
+        val legacyIntent = Intent(context, AlarmActivity::class.java).apply {
+            action = alarmAction(context, requestCode)
+        }
+        val legacyPending = PendingIntent.getActivity(
+            context, requestCode, legacyIntent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (legacyPending != null) {
+            manager.cancel(legacyPending)
+            legacyPending.cancel()
         }
     }
 
@@ -75,9 +87,8 @@ internal object ClockAlarmScheduler {
 
     private fun scheduleInstance(context: Context, requestCode: Int, id: Int, hour: Int, minute: Int, day: Int, label: String, triggerAt: Long) {
         val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, AlarmActivity::class.java).apply {
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
             action = alarmAction(context, requestCode)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(AlarmActivity.EXTRA_ALARM_ID, id)
             putExtra(AlarmActivity.EXTRA_REQUEST_CODE, requestCode)
             putExtra(AlarmActivity.EXTRA_HOUR, hour)
@@ -85,11 +96,16 @@ internal object ClockAlarmScheduler {
             putExtra(AlarmActivity.EXTRA_REPEAT_DAY, day)
             putExtra(AlarmActivity.EXTRA_LABEL, label)
         }
-        val operation = PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val operation = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        val showIntent = if (launchIntent != null) {
-            PendingIntent.getActivity(context, 0, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        } else operation
+            ?: Intent(context, MainActivity::class.java)
+        val showIntent = PendingIntent.getActivity(
+            context, 0, launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         manager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), operation)
     }
 

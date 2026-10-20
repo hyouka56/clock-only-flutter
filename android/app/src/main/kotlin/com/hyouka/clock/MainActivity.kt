@@ -1,6 +1,10 @@
 package com.hyouka.clock
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.app.NotificationManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -9,6 +13,31 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var fullScreenIntentSettingsOpened = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4102)
+        }
+    }
+
+    private fun ensureFullScreenAlarmAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE || fullScreenIntentSettingsOpened) return
+        val notifications = getSystemService(NotificationManager::class.java)
+        if (!notifications.canUseFullScreenIntent()) {
+            fullScreenIntentSettingsOpened = true
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "clock_only/alarm_scheduler")
@@ -31,6 +60,7 @@ class MainActivity : FlutterActivity() {
                             val days = (call.argument<List<*>>("days") ?: emptyList<Any>())
                                 .filterIsInstance<Number>().map { it.toInt() }
                             ClockAlarmScheduler.scheduleAlarm(this, id, hour, minute, days, label)
+                            ensureFullScreenAlarmAccess()
                             result.success(true)
                         }
                         "cancelAlarm" -> {
