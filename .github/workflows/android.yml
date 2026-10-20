@@ -47,13 +47,13 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      - name: Build release APK
-        run: flutter build apk --release
+      - name: Build ARM64-only release APK
+        run: flutter build apk --release --target-platform android-arm64
 
-      - name: Upload APK
+      - name: Upload ARM64-only APK
         uses: actions/upload-artifact@v4
         with:
-          name: clock-only-android-apk
+          name: clock-only-android-arm64-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
