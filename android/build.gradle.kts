@@ -4,7 +4,7 @@ allprojects {
         mavenCentral()
     }
 }
-val sharedBuildDir = rootProject.layout.buildDirectory.dir("../build").get()
+val sharedBuildDir = rootProject.layout.buildDirectory.dir("../../build").get()
 rootProject.layout.buildDirectory.value(sharedBuildDir)
 subprojects {
     val projectBuildDir = sharedBuildDir.dir(project.name)
