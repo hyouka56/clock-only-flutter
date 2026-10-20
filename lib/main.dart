@@ -5,10 +5,7 @@ import 'dart:ui' show FontFeature;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:timezone/data/latest_all.dart' as tz_data;
-import 'package:timezone/timezone.dart' as tz;
 
 const black = Color(0xFF000000);
 const white = Color(0xFFFFFFFF);
@@ -144,14 +141,22 @@ class _ClockHomePageState extends State<ClockHomePage> {
     }
     if (mounted) setState(() => _loading = false);
 
-    // Re-register saved alarms so existing installs migrate to the alarm-tone channel.
-    for (final alarm in _alarms.where((item) => item.enabled)) {
-      try {
-        await AlarmScheduler.instance.schedule(alarm);
-      } catch (error) {
-        debugPrint('Could not restore alarm ${alarm.id}: $error');
+    final enabledAlarms = _alarms.where((item) => item.enabled).toList();
+    if (enabledAlarms.isNotEmpty) {
+      final exactAccess = await AlarmScheduler.instance.canScheduleExactAlarms();
+      if (!exactAccess) {
+        _message('Enable exact alarm access for Clock in Android settings.');
+      } else {
+        for (final alarm in enabledAlarms) {
+          try {
+            await AlarmScheduler.instance.schedule(alarm);
+          } catch (error) {
+            debugPrint('Could not restore alarm ${alarm.id}: $error');
+          }
+        }
       }
     }
+
   }
 
   Future<void> _saveAlarms() async {
@@ -354,14 +359,11 @@ class _ClockHomePageState extends State<ClockHomePage> {
     final notificationsAllowed =
         await AlarmScheduler.instance.requestPermissions();
     if (!notificationsAllowed) {
-      _message('Allow notifications so alarms can alert you.');
+      _message('Enable exact alarm access for Clock, then save the alarm again.');
       return;
     }
     try {
       final exact = await AlarmScheduler.instance.schedule(alarm);
-      if (!exact) {
-        _message('Exact alarm access is off. This alarm may be delayed.');
-      }
     } catch (error) {
       debugPrint('Could not schedule alarm: $error');
       _message('Could not schedule alarm. Check Android alarm permissions.');
@@ -768,123 +770,52 @@ class AlarmDraft {
 class AlarmScheduler {
   AlarmScheduler._();
   static final AlarmScheduler instance = AlarmScheduler._();
+  static const MethodChannel _channel = MethodChannel('clock_only/alarm_scheduler');
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
-  String? _defaultAlarmSoundUri;
 
   Future<void> initialize() async {
-    tz_data.initializeTimeZones();
-    try {
-      final local = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(local.identifier));
-    } catch (error) {
-      debugPrint('Could not detect local timezone: $error');
-    }
-    try {
-      _defaultAlarmSoundUri = await const MethodChannel(
-        'clock_only/alarm_sound',
-      ).invokeMethod<String>('getDefaultAlarmSoundUri');
-    } on PlatformException catch (error) {
-      debugPrint('Could not read the system alarm tone: $error');
-    }
     await _plugin.initialize(
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_launcher'),
       ),
     );
+    // Remove previously scheduled notification-style alarms from earlier versions.
+    await _plugin.cancelAll();
+  }
+
+  Future<bool> canScheduleExactAlarms() async {
+    try {
+      return await _channel.invokeMethod<bool>('canScheduleExactAlarms') ?? false;
+    } on PlatformException catch (error) {
+      debugPrint('Could not check exact alarm access: $error');
+      return false;
+    }
   }
 
   Future<bool> requestPermissions() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (android == null) return false;
-    final notificationAccess =
-        await android.requestNotificationsPermission() ?? true;
-    if (!notificationAccess) return false;
-    final exact = await android.canScheduleExactNotifications() ?? false;
-    if (!exact) await android.requestExactAlarmsPermission();
-    return true;
+    try {
+      return await _channel.invokeMethod<bool>('requestExactAlarmAccess') ?? false;
+    } on PlatformException catch (error) {
+      debugPrint('Could not request exact alarm access: $error');
+      return false;
+    }
   }
 
   Future<bool> schedule(AlarmEntry alarm) async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (android == null) return false;
-    final exact = await android.canScheduleExactNotifications() ?? false;
-    final mode = exact
-        ? AndroidScheduleMode.exactAllowWhileIdle
-        : AndroidScheduleMode.inexactAllowWhileIdle;
-    // Android remembers a channel's sound after creation, so v3 migrates old installs
-    // away from the notification-tone channel used by earlier builds.
-    final alarmSoundUri =
-        _defaultAlarmSoundUri ?? 'content://settings/system/alarm_alert';
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'clock_alarms_v3',
-        'Alarms',
-        channelDescription: 'Scheduled alarms using your system alarm tone.',
-        importance: Importance.max,
-        priority: Priority.max,
-        category: AndroidNotificationCategory.alarm,
-        audioAttributesUsage: AudioAttributesUsage.alarm,
-        sound: UriAndroidNotificationSound(alarmSoundUri),
-        playSound: true,
-        enableVibration: true,
-        visibility: NotificationVisibility.public,
-        fullScreenIntent: true,
-        icon: 'ic_stat_clock',
-      ),
-    );
-
-    await cancel(alarm.id);
-    final now = tz.TZDateTime.now(tz.local);
-    if (alarm.days.isEmpty) {
-      var next = tz.TZDateTime(
-        tz.local, now.year, now.month, now.day, alarm.hour, alarm.minute,
-      );
-      if (!next.isAfter(now)) next = next.add(const Duration(days: 1));
-      await _plugin.zonedSchedule(
-        id: _singleId(alarm.id),
-        title: alarm.label.isEmpty ? 'Alarm' : alarm.label,
-        body: 'It is time.',
-        scheduledDate: next,
-        notificationDetails: details,
-        androidScheduleMode: mode,
-        payload: 'clock-alarm:' + alarm.id.toString(),
-      );
-    } else {
-      for (final day in (alarm.days.toSet().toList()..sort())) {
-        final distance = (day - now.weekday + 7) % 7;
-        final date = DateTime(now.year, now.month, now.day)
-            .add(Duration(days: distance));
-        var next = tz.TZDateTime(
-          tz.local, date.year, date.month, date.day, alarm.hour, alarm.minute,
-        );
-        if (!next.isAfter(now)) next = next.add(const Duration(days: 7));
-        await _plugin.zonedSchedule(
-          id: _weeklyId(alarm.id, day),
-          title: alarm.label.isEmpty ? 'Alarm' : alarm.label,
-          body: 'It is time.',
-          scheduledDate: next,
-          notificationDetails: details,
-          androidScheduleMode: mode,
-          matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
-          payload: 'clock-alarm:' + alarm.id.toString(),
-        );
-      }
-    }
-    return exact;
+    await _channel.invokeMethod<void>('scheduleAlarm', <String, Object>{
+      'id': alarm.id,
+      'hour': alarm.hour,
+      'minute': alarm.minute,
+      'label': alarm.label,
+      'days': alarm.days,
+    });
+    return true;
   }
 
   Future<void> cancel(int alarmId) async {
-    for (var day = 1; day <= 7; day++) {
-      await _plugin.cancel(id: _weeklyId(alarmId, day));
-    }
-    await _plugin.cancel(id: _singleId(alarmId));
+    await _channel.invokeMethod<void>('cancelAlarm', <String, int>{'id': alarmId});
   }
-
-  int _weeklyId(int id, int day) => id * 10 + day;
-  int _singleId(int id) => id * 10 + 8;
 }
 
 int _compareAlarms(AlarmEntry a, AlarmEntry b) =>
