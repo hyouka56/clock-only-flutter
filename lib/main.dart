@@ -143,6 +143,15 @@ class _ClockHomePageState extends State<ClockHomePage> {
       debugPrint('Could not load alarms: $error');
     }
     if (mounted) setState(() => _loading = false);
+
+    // Re-register saved alarms so existing installs migrate to the alarm-tone channel.
+    for (final alarm in _alarms.where((item) => item.enabled)) {
+      try {
+        await AlarmScheduler.instance.schedule(alarm);
+      } catch (error) {
+        debugPrint('Could not restore alarm ${alarm.id}: $error');
+      }
+    }
   }
 
   Future<void> _saveAlarms() async {
@@ -761,6 +770,7 @@ class AlarmScheduler {
   static final AlarmScheduler instance = AlarmScheduler._();
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+  String? _defaultAlarmSoundUri;
 
   Future<void> initialize() async {
     tz_data.initializeTimeZones();
@@ -769,6 +779,13 @@ class AlarmScheduler {
       tz.setLocalLocation(tz.getLocation(local.identifier));
     } catch (error) {
       debugPrint('Could not detect local timezone: $error');
+    }
+    try {
+      _defaultAlarmSoundUri = await const MethodChannel(
+        'clock_only/alarm_sound',
+      ).invokeMethod<String>('getDefaultAlarmSoundUri');
+    } on PlatformException catch (error) {
+      debugPrint('Could not read the system alarm tone: $error');
     }
     await _plugin.initialize(
       settings: const InitializationSettings(
@@ -797,15 +814,20 @@ class AlarmScheduler {
     final mode = exact
         ? AndroidScheduleMode.exactAllowWhileIdle
         : AndroidScheduleMode.inexactAllowWhileIdle;
-    const details = NotificationDetails(
+    // Android remembers a channel's sound after creation, so v3 migrates old installs
+    // away from the notification-tone channel used by earlier builds.
+    final alarmSoundUri =
+        _defaultAlarmSoundUri ?? 'content://settings/system/alarm_alert';
+    final details = NotificationDetails(
       android: AndroidNotificationDetails(
-        'clock_alarms_v2',
+        'clock_alarms_v3',
         'Alarms',
-        channelDescription: 'Scheduled alerts from Clock.',
+        channelDescription: 'Scheduled alarms using your system alarm tone.',
         importance: Importance.max,
         priority: Priority.max,
         category: AndroidNotificationCategory.alarm,
         audioAttributesUsage: AudioAttributesUsage.alarm,
+        sound: UriAndroidNotificationSound(alarmSoundUri),
         playSound: true,
         enableVibration: true,
         visibility: NotificationVisibility.public,
