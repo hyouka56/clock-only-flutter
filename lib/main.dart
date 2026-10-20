@@ -799,7 +799,7 @@ class AlarmScheduler {
         : AndroidScheduleMode.inexactAllowWhileIdle;
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
-        'clock_alarms_v1',
+        'clock_alarms_v2',
         'Alarms',
         channelDescription: 'Scheduled alerts from Clock.',
         importance: Importance.max,
@@ -809,6 +809,7 @@ class AlarmScheduler {
         playSound: true,
         enableVibration: true,
         visibility: NotificationVisibility.public,
+        fullScreenIntent: true,
         icon: 'ic_stat_clock',
       ),
     );
